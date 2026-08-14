@@ -1,0 +1,4 @@
+interface:
+  display_name: "MinerU PDF to Markdown"
+  short_description: "Safely convert one Windows PDF with MinerU"
+  default_prompt: "Use $mineru-pdf-to-markdown to prepare MinerU if needed and convert this PDF into a two-file Markdown package."
