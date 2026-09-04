@@ -1,186 +1,223 @@
 # MinerU PDF 转 Markdown Skill
 
-这是一个面向 Windows 的 Agent Skill 仓库。**仓库根目录就是 skill**，下载或克隆后，把整个目录安装到 Agent 的 skills 目录即可。用户只需要提供一个 PDF 和保存位置，Agent 可以根据 skill 完成环境检查、MinerU 安装、模型下载、转换、完整性校验和故障说明。
+这是一个给 Windows 用户使用的 PDF 转换工具。你只要准备好 PDF，并告诉 Agent 结果要放在哪里，它就能帮你检查安装、下载需要的文件，再把 PDF 转成 Markdown。
 
-这里的“只使用这个 skill”不等于完全离线：首次使用仍依赖网络、PowerShell、Python/uv、PyPI、MinerU 模型仓库、磁盘空间和本机执行权限。本项目不打包 Python、MinerU 或模型。
+最省事的用法，是直接对 Agent 说：
 
-## 仓库结构
+> 用 MinerU 把 `D:\资料\示例.pdf` 转成 Markdown，结果放到 `D:\资料\示例结果`。
+
+第一次使用时需要联网安装。后面再转换其他 PDF，一般不需要重复安装。
+
+## 转换后会得到什么
+
+每次成功转换后，结果文件夹里只有两个文件：
 
 ```text
-mineru-pdf-to-markdown/
+示例结果\
+├── 示例.pdf
+└── 示例.md
+```
+
+- `示例.pdf`：原 PDF 的一份备份，方便你随时对照原文。
+- `示例.md`：转换后的文字、标题、表格、公式和图片。
+
+图片会直接放进 Markdown 文件里，所以不会再多出一个图片文件夹。图片多的 PDF，生成的 `.md` 文件可能比较大，这是正常现象。
+
+程序不会覆盖结果文件夹里原有的内容。如果指定的文件夹已经有文件，它会停下来，请你换一个新的空文件夹。
+
+如果转换过程中原 PDF 被替换或改动，程序也会停下来，不会交付一份可能对不上原文的结果。
+
+> MinerU 可以省下大量复制和排版时间，但它也可能认错文字、表格或公式。论文引用、实验数字和重要结论，请回到结果文件夹里的 PDF 再核对一次。
+
+## 适合处理哪些 PDF
+
+这个 skill 适合：
+
+- 可以直接选中文字的普通 PDF；
+- 扫描版 PDF 或拍照生成的 PDF；
+- 带有标题、分栏、图片、表格或公式的论文和报告；
+- 希望最后只保留“一份 PDF + 一份 Markdown”的整理流程。
+
+如果 PDF 有打开密码，请先用你有权使用的密码解除保护，再进行转换。
+
+## 安装这个 skill
+
+这个仓库本身就是一个完整的 skill，不需要再去找里面的某个子文件夹。
+
+1. 在 GitHub 页面点击 `Code`，再点击 `Download ZIP`。
+2. 解压下载的文件。
+3. 把整个文件夹放进你的 Agent 技能目录。
+
+常见位置如下：
+
+```text
+%USERPROFILE%\.agents\skills\mineru-pdf-to-markdown\
+%USERPROFILE%\.codex\skills\mineru-pdf-to-markdown\
+%USERPROFILE%\.claude\skills\mineru-pdf-to-markdown\
+```
+
+`%USERPROFILE%` 代表你自己的 Windows 用户文件夹，例如 `C:\Users\小明`。
+
+安装完成后，你可以重新打开 Agent，然后直接用前面的自然语言示例让它处理 PDF。
+
+## 第一次准备 MinerU
+
+如果你是让 Agent 操作，把下面这件事直接交给它即可：
+
+> 请按这个 skill 的说明安装 MinerU，并下载转换 PDF 需要的文件。
+
+如果你想自己操作，请打开 PowerShell，把下面整段命令复制进去：
+
+```powershell
+$env:PYTHONUTF8 = "1"
+& ".\scripts\install_mineru.ps1" `
+  -EnvPath "$env:USERPROFILE\mineru-env" `
+  -DownloadModels
+```
+
+第一次安装前，请注意：
+
+- 需要联网；
+- 最好准备约 20 GB 可用空间；
+- 下载时间取决于网速，模型文件可能比较大；
+- MinerU 会装在单独的文件夹里，不会替换你平时使用的 Python。
+
+如果默认下载线路不稳定，可以换一个来源：
+
+```powershell
+& ".\scripts\install_mineru.ps1" `
+  -EnvPath "$env:USERPROFILE\mineru-env" `
+  -ModelSource modelscope `
+  -DownloadModels
+```
+
+如果电脑里已经装过旧版 MinerU，安装程序会提醒你。需要重装时，可以运行：
+
+```powershell
+& ".\scripts\install_mineru.ps1" `
+  -EnvPath "$env:USERPROFILE\mineru-env" `
+  -DownloadModels `
+  -ForceReinstall
+```
+
+旧的 MinerU 文件夹会被改名保留，方便出问题时找回，不会直接删除。
+
+## 转换一个 PDF
+
+下面的例子把桌面上的 `sample.pdf` 转到一个新的结果文件夹。复制命令后，只需要修改双引号里的路径。
+
+```powershell
+$env:PYTHONUTF8 = "1"
+& "$env:USERPROFILE\mineru-env\Scripts\python.exe" `
+  ".\scripts\convert_pdf.py" `
+  "$env:USERPROFILE\Desktop\sample.pdf" `
+  "$env:USERPROFILE\Desktop\sample-result"
+```
+
+转换时通常每 15 秒会显示一次进度。页面很多、图片很多，或者电脑只使用处理器运行时，等待时间可能较长。
+
+## 常用设置
+
+大多数时候不需要加任何设置，让程序自动判断即可。只有结果不理想时，再尝试下面这些选项。
+
+```powershell
+& "$env:USERPROFILE\mineru-env\Scripts\python.exe" `
+  ".\scripts\convert_pdf.py" `
+  "D:\资料\示例.pdf" `
+  "D:\资料\示例结果" `
+  -Method auto `
+  -Language ch `
+  -StartPage 0 `
+  -EndPage 9
+```
+
+- `-Method auto`：让 MinerU 自己判断怎样识别，推荐保持这个设置。
+- `-Method txt`：适合能够直接选中文字的 PDF。
+- `-Method ocr`：适合扫描件或照片 PDF。
+- `-Language ch`：告诉 MinerU 文档主要是中文。也可以填写 `en` 等语言代号。
+- `-StartPage` 和 `-EndPage`：只转换一部分页面。这里第一页记作 `0`，所以 `0` 到 `9` 表示前 10 页。
+- `-DisableFormula`：不识别公式。
+- `-DisableTable`：不识别表格。
+
+最后两个选项一般不要使用，除非公式或表格识别明显拖慢了转换，或者造成了很多错误。
+
+## 遇到问题怎么办
+
+### 提示结果文件夹不是空的
+
+换一个新的文件夹名称。程序这样做是为了避免覆盖你已有的文件。
+
+### 提示 PDF 无效或打不开
+
+先用常用的 PDF 阅读器打开它。如果阅读器也打不开，请重新下载或重新导出这份 PDF。仅仅把其他文件的后缀改成 `.pdf` 是没有用的。
+
+### 提示 PDF 有密码
+
+先用你有权使用的密码解除保护，再转换解除保护后的文件。
+
+### 安装或下载中断
+
+先检查网络和剩余磁盘空间，再重新运行安装命令。如果默认线路反复失败，可以使用前面带 `-ModelSource modelscope` 的命令。
+
+### 提示 MinerU 版本不对
+
+这个 skill 当前配合 MinerU 3.4.5 使用。运行前面带 `-ForceReinstall` 的命令即可重装。旧文件夹仍会保留。
+
+### Windows 弹出网络提示
+
+MinerU 转换时会在这台电脑内部临时运行一个小服务，脚本只连接本机，不需要把它公开到互联网。
+
+### 转换成功，但内容有错
+
+先尝试切换 `-Method txt` 或 `-Method ocr`。如果问题只出现在表格、公式或少数页面，请对照 PDF 手动修正重要内容。
+
+## 保存更详细的错误记录
+
+平时出错时，程序只显示一段简短说明。需要请别人协助排查时，可以把更详细的记录保存到文件：
+
+```powershell
+& "$env:USERPROFILE\mineru-env\Scripts\python.exe" `
+  ".\scripts\convert_pdf.py" `
+  "D:\资料\示例.pdf" `
+  "D:\资料\示例结果" `
+  -DiagnosticLogPath "D:\资料\mineru-error.log"
+```
+
+这个记录里可能出现文件名、文件夹位置，以及 MinerU 返回的部分内容。发送给别人之前，请先看看里面有没有不方便公开的信息。
+
+## 给维护者
+
+普通用户不需要阅读这一节。
+
+```text
+mineru-pdf-to-markdown\
 ├── SKILL.md
-├── scripts/
-│   ├── Install-MinerU.ps1
-│   ├── Convert-PdfToMarkdown.ps1
-│   └── convert_pdf.py
-├── requirements.in
-├── requirements.lock
-├── agents/openai.yaml
-├── tests/
-└── README.md
+├── README.md
+├── LICENSE
+├── references\
+│   └── troubleshooting.md
+├── scripts\
+│   ├── install_mineru.ps1
+│   ├── convert_pdf.py
+│   └── requirements.lock
+└── tests\
+    └── test_convert_pdf.py
 ```
 
-## 安装为 skill
-
-将整个仓库复制到任一受支持的技能目录，例如：
-
-- Codex / DSH：`%USERPROFILE%\.agents\skills\mineru-pdf-to-markdown\SKILL.md`
-- Codex 兼容目录：`%USERPROFILE%\.codex\skills\mineru-pdf-to-markdown\SKILL.md`
-- Claude Code：`%USERPROFILE%\.claude\skills\mineru-pdf-to-markdown\SKILL.md`
-
-也可以让支持 GitHub 仓库安装的 skill installer 从本仓库地址安装。安装后确认 `SKILL.md`、`scripts/` 与 `requirements.lock` 位于同一 skill 根目录。
-
-## 输出
-
-成功后输出目录严格只有两个文件：
-
-```text
-论文-markdown\
-├── 论文.pdf
-└── 论文.md
-```
-
-PDF 是未经修改并经 SHA-256 校验的副本。转换开始时源 PDF 会被快照到临时目录，MinerU 只读取这个快照，最终 PDF 也只从同一快照发布；如果转换期间源 PDF 的字节发生变化，任务停止且不发布任何包。“源文件未变化”只按 SHA-256 判断，云盘刷新时间戳但内容未变时仍可成功。
-
-MinerU 生成的本地图片会以 Base64 写入 Markdown，因此不留下 images、JSON 或日志目录；代价是图片多时 Markdown 会很大。转换器采用流式写入：逐行处理 Markdown、按 3 字节对齐的块编码图片，峰值内存不再随整个文档和全部图片线性累积，但单个超长 Markdown 行仍可能占用该行大小的内存。
-
-“转换成功”只表示工具运行和文件契约成功，不保证 OCR、公式、表格或阅读顺序百分之百正确。引用事实前必须回查 PDF。
-
-## 适用范围
-
-- 扫描件、图片版 PDF；
-- 学术论文、书籍章节和报告；
-- 公式、表格、多栏或复杂版面；
-- 中文、空格和长文件名；
-- 明确要求只保留 PDF 与 Markdown 的任务。
-
-当前只支持 Windows PowerShell 5.1/7，固定使用 MinerU 3.4.5（`pipeline` 后端，精确版本）。官方当前 Windows 支持 Python 3.10–3.12；安装器优先 3.11。CPU 可以运行，但可能很慢。
-
-## 交给 Agent 使用
-
-示例请求：
-
-- “用 MinerU 把这个扫描 PDF 转成 Markdown，结果只保留 PDF 和 Markdown。”
-- “首次安装需要下载时先告诉我，再转换这篇含公式和表格的论文。”
-- “Hugging Face 连不上，改用 ModelScope 下载 pipeline 模型。”
-
-Agent 应先阅读 skill，再调用其中脚本；不应临时拼接另一套 MinerU 命令。
-
-## 完全手动使用
-
-以下示例假设项目位于：
-
-```text
-C:\Users\你的用户名\Downloads\mineru-pdf-to-markdown
-```
-
-按 `Win + R`，输入 `powershell` 并回车。路径只用一层英文双引号。
-
-### 1. 首次安装并下载 pipeline 模型
-
-安装会连接 GitHub（下载固定版本 uv 资产并校验其 SHA-256）、PyPI，以及 Hugging Face 或 ModelScope。请预留约 20 GB 安全余量；实际占用随 MinerU、模型和缓存版本变化。
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\你的用户名\Downloads\mineru-pdf-to-markdown\scripts\Install-MinerU.ps1" `
-  -DownloadModels -ModelSource auto
-```
-
-中国大陆网络无法访问 Hugging Face 时，将最后一项改为：
-
-```powershell
--DownloadModels -ModelSource modelscope
-```
-
-安装器会：
-
-1. 检查 Windows、目标盘空间和 GPU；
-2. 需要 uv 时，按 Windows 架构下载固定版本 uv 资产，先用仓库中记录的 SHA-256 校验，校验失败则不解压、不执行；
-3. 复用 Python 3.10–3.12，优先 3.11；没有时用 uv 隔离安装 Python 3.11；
-4. 在 `%USERPROFILE%\mineru-env` 创建环境，不替换系统 Python、不修改 PATH；
-5. 只从带 hashes 的 `requirements.lock` 安装精确版本 `mineru[pipeline]==3.4.5`，启用 hash 强制校验；
-6. 仅在指定 `-DownloadModels` 时下载 pipeline 模型。
-
-需要重建环境时添加 `-ForceReinstall`。旧环境会移动成带时间戳的备份，不会直接删除。
-
-转换器也会核验 MinerU 精确版本。若检测到 3.4.4 等旧环境，它会在读取 PDF 前停止，并提示使用同一 `-EnvironmentPath` 配合 `-ForceReinstall` 重建；不会静默混用旧依赖。
-
-### 2. 转换一个 PDF
-
-输出目录必须不存在或完全为空：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\你的用户名\Downloads\mineru-pdf-to-markdown\scripts\Convert-PdfToMarkdown.ps1" `
-  -PdfPath "C:\Users\你的用户名\Documents\论文.pdf" `
-  -OutputDirectory "C:\Users\你的用户名\Documents\论文-markdown"
-```
-
-终端默认每 15 秒显示一次仍在运行的提示。不要重复打开转换。脚本默认不设置总超时，因为长扫描件可能耗时很久；确需限制时添加例如 `-TimeoutMinutes 120`。
-
-需要更精确地控制解析时，可以追加：
-
-```powershell
--Method ocr `
--Language east_slavic `
--StartPage 0 `
--EndPage 9
-```
-
-- `-Method auto|txt|ocr`：默认 `auto`；仅在明确知道 PDF 类型时强制 `txt` 或 `ocr`。
-- `-Language`：可选 OCR 语言提示，具体值由脚本校验。
-- `-StartPage` / `-EndPage`：从 0 开始、首尾都包含；结束页不得早于开始页。
-- `-DisableFormula` / `-DisableTable`：显式关闭公式或表格解析。学术论文默认不要关闭。
-
-自定义安装位置时，安装和转换都传同一个路径：
-
-```powershell
--EnvironmentPath "D:\Tools\mineru-env"
-```
-
-### 3. 需要完整 MinerU 日志时
-
-默认错误信息已脱敏，只含退出码和一条行动建议。需要完整日志排障时，显式传入本地文件路径（父目录必须已存在；已有文件不会被覆盖；日志可能含敏感信息）：
-
-```powershell
-... Convert-PdfToMarkdown.ps1 `
-  -PdfPath "C:\Users\你的用户名\Documents\论文.pdf" `
-  -OutputDirectory "C:\Users\你的用户名\Documents\论文-markdown" `
-  -DiagnosticLogPath "C:\Users\你的用户名\Documents\mineru-debug.log"
-```
-
-## 常见失败
-
-- **目标目录非空**：换一个新目录，不要为运行脚本而删除旧文件。
-- **不是有效 PDF**：扩展名为 `.pdf` 仍不够，文件内部必须有 PDF 标记。
-- **转换期间源 PDF 变化或不可读**：任务停止且不发布；确认输入文件后重试。
-- **uv 资产哈希校验失败**：下载未通过校验，未解压也未执行；重试安装。
-- **加密或需要密码**：使用有权解密的副本。
-- **下载、SSL、代理失败**：检查网络；经确认后切换 ModelScope。
-- **空间不足**：环境盘、模型缓存盘、输出盘都需要空间。
-- **CUDA/显存不足**：关闭游戏、视频、绘图等 GPU 程序；pipeline 可退到 CPU。
-- **本地防火墙提示**：MinerU 3.4 会启动临时 localhost API，不应开放公网访问。
-- **Markdown 很大**：Base64 图片是维持“两文件输出”的代价；转换器已流式写入以降低峰值内存。
-- **内容错漏**：这是机器提取结果，必须与 PDF 抽查，不能把不确定内容写成事实。
-
-## 开发验证
+- 当前配合版本：MinerU 3.4.5。
+- 支持 Python 3.10、3.11 和 3.12。
+- `requirements.lock` 记录安装时使用的具体软件版本。
+- 转换脚本只接受本机文件，不会替用户下载网络上的 PDF。
 
 运行测试：
 
 ```powershell
-& "$env:USERPROFILE\mineru-env\Scripts\python.exe" -m unittest discover -s tests -v
-```
-
-中文 Windows 验证 Skill 结构时显式使用 UTF-8：
-
-```powershell
 $env:PYTHONUTF8 = "1"
-python "C:\Users\你的用户名\.codex\skills\.system\skill-creator\scripts\quick_validate.py" "."
-Remove-Item Env:PYTHONUTF8
+python -m unittest discover -s ".\tests" -v
 ```
 
-另需解析两个 PowerShell 脚本、执行真实一页 PDF 冒烟转换，并确认结果仅有 PDF 与 Markdown、PDF 哈希与转换快照一致、Markdown 非空。
-
-升级 MinerU 属于显式维护动作：重新生成 `requirements.lock`（`uv pip compile --universal --generate-hashes`）、更新 `requirements.in` 的精确版本、运行全部测试和真实一页 PDF 冒烟转换，再同步更新本文档和 `SKILL.md` 中声明的版本。
+如果本机 MinerU 版本与这个 skill 不一致，版本检查会跳过，其余测试仍会继续。
 
 ## License
 
-MIT
+本项目使用 MIT License，详见 [LICENSE](LICENSE)。
