@@ -19,7 +19,23 @@ param(
     [ValidateSet("auto", "huggingface", "modelscope", "local")]
     [string]$ModelSource = "auto",
 
-    [string]$DiagnosticLogPath
+    [string]$DiagnosticLogPath,
+
+    [ValidateSet("auto", "txt", "ocr")]
+    [string]$Method = "auto",
+
+    [ValidateSet("ch", "ch_server", "korean", "ta", "te", "ka", "th", "el", "arabic", "east_slavic", "cyrillic", "devanagari")]
+    [string]$Language,
+
+    [ValidateRange(-1, 2147483647)]
+    [int]$StartPage = -1,
+
+    [ValidateRange(-1, 2147483647)]
+    [int]$EndPage = -1,
+
+    [switch]$DisableFormula,
+
+    [switch]$DisableTable
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,6 +46,38 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pythonScript = Join-Path $scriptDirectory "convert_pdf.py"
+$PinnedMinerUVersion = "3.4.5"
+
+function Test-ExactMinerUVersion([string]$VersionText) {
+    if ([string]::IsNullOrWhiteSpace($VersionText)) {
+        return $false
+    }
+    return $VersionText.Trim() -eq $PinnedMinerUVersion
+}
+
+function Assert-CompatibleMinerU([string]$PythonExe, [string]$MinerUExe) {
+    try {
+        $output = & $PythonExe -c "import importlib.metadata as m; print(m.version('mineru'))" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not read the installed MinerU version."
+        }
+        $installedVersion = (($output | Select-Object -Last 1).ToString().Trim())
+    }
+    catch {
+        throw "Could not verify MinerU in the selected environment: $PythonExe"
+    }
+    if (-not (Test-ExactMinerUVersion $installedVersion)) {
+        throw (
+            "The selected environment contains MinerU $installedVersion, but this skill " +
+            "requires exactly $PinnedMinerUVersion. Run Install-MinerU.ps1 with the same " +
+            "-EnvironmentPath and -ForceReinstall."
+        )
+    }
+    return @{
+        Python = $PythonExe
+        MinerU = $MinerUExe
+    }
+}
 
 function Resolve-MinerUEnvironment {
     $environmentCandidates = @()
@@ -50,10 +98,7 @@ function Resolve-MinerUEnvironment {
         if (-not (Test-Path -LiteralPath $pythonBesideMinerU -PathType Leaf)) {
             throw "python.exe was not found beside the selected MinerU executable: $pythonBesideMinerU"
         }
-        return @{
-            Python = $pythonBesideMinerU
-            MinerU = $resolvedMinerU
-        }
+        return (Assert-CompatibleMinerU $pythonBesideMinerU $resolvedMinerU)
     }
 
     foreach ($candidate in $environmentCandidates) {
@@ -63,10 +108,7 @@ function Resolve-MinerUEnvironment {
             (Test-Path -LiteralPath $candidatePython -PathType Leaf) -and
             (Test-Path -LiteralPath $candidateMinerU -PathType Leaf)
         ) {
-            return @{
-                Python = $candidatePython
-                MinerU = $candidateMinerU
-            }
+            return (Assert-CompatibleMinerU $candidatePython $candidateMinerU)
         }
     }
 
@@ -89,11 +131,30 @@ try {
         "--mineru", $environment.MinerU,
         "--heartbeat-seconds", $HeartbeatSeconds,
         "--timeout-minutes", $TimeoutMinutes,
-        "--model-source", $ModelSource
+        "--model-source", $ModelSource,
+        "--method", $Method
     )
     if ($DiagnosticLogPath) {
         $arguments += "--diagnostic-log-path"
         $arguments += $DiagnosticLogPath
+    }
+    if ($Language) {
+        $arguments += "--language"
+        $arguments += $Language
+    }
+    if ($StartPage -ge 0) {
+        $arguments += "--start-page"
+        $arguments += $StartPage
+    }
+    if ($EndPage -ge 0) {
+        $arguments += "--end-page"
+        $arguments += $EndPage
+    }
+    if ($DisableFormula) {
+        $arguments += "--disable-formula"
+    }
+    if ($DisableTable) {
+        $arguments += "--disable-table"
     }
 
     & $environment.Python @arguments

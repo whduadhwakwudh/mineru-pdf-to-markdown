@@ -1,6 +1,6 @@
 # MinerU PDF 转 Markdown Skill
 
-这是一个面向 Windows 的 Agent Skill 仓库。**本仓库根目录就是 skill**（`SKILL.md` 就在仓库根），下载或克隆后无需理解任何嵌套目录，直接把它放进你的技能目录即可使用。用户只需要提供一个 PDF 和保存位置，Agent 可以根据 skill 完成环境检查、MinerU 安装、模型下载、转换、完整性校验和故障说明。
+这是一个面向 Windows 的 Agent Skill 仓库。**仓库根目录就是 skill**，下载或克隆后，把整个目录安装到 Agent 的 skills 目录即可。用户只需要提供一个 PDF 和保存位置，Agent 可以根据 skill 完成环境检查、MinerU 安装、模型下载、转换、完整性校验和故障说明。
 
 这里的“只使用这个 skill”不等于完全离线：首次使用仍依赖网络、PowerShell、Python/uv、PyPI、MinerU 模型仓库、磁盘空间和本机执行权限。本项目不打包 Python、MinerU 或模型。
 
@@ -8,40 +8,27 @@
 
 ```text
 mineru-pdf-to-markdown/
-├── SKILL.md                    ← 技能标志（skill 本体就是本仓库根）
+├── SKILL.md
 ├── scripts/
-│   ├── Install-MinerU.ps1      ← 安装 + 可选模型下载
-│   ├── Convert-PdfToMarkdown.ps1 ← 转换入口
-│   └── convert_pdf.py          ← 转换核心（快照、流式内嵌、原子发布）
-├── requirements.in / requirements.lock   ← 带 hashes 的依赖锁
+│   ├── Install-MinerU.ps1
+│   ├── Convert-PdfToMarkdown.ps1
+│   └── convert_pdf.py
+├── requirements.in
+├── requirements.lock
 ├── agents/openai.yaml
-├── tests/                      ← 38 个单元测试
-├── README.md / LICENSE / .gitignore
+├── tests/
+└── README.md
 ```
 
-## 安装为 skill（二选一）
+## 安装为 skill
 
-**方式一：复制到本机技能目录**（对任意项目生效）
+将整个仓库复制到任一受支持的技能目录，例如：
 
-把整个仓库目录复制/移动到你的技能目录，使 `SKILL.md` 位于：
-
-- Codex / DSH：`%USERPROFILE%\.agents\skills\mineru-pdf-to-markdown\SKILL.md`（或 `%USERPROFILE%\.codex\skills\`、`%USERPROFILE%\.dsh\skills\`）
+- Codex / DSH：`%USERPROFILE%\.agents\skills\mineru-pdf-to-markdown\SKILL.md`
+- Codex 兼容目录：`%USERPROFILE%\.codex\skills\mineru-pdf-to-markdown\SKILL.md`
 - Claude Code：`%USERPROFILE%\.claude\skills\mineru-pdf-to-markdown\SKILL.md`
 
-```powershell
-# 以 Codex 用户级技能为例（在仓库解压目录的上一级执行；目标目录不存在则先创建）
-Copy-Item -Path ".\mineru-pdf-to-markdown" -Destination "$env:USERPROFILE\.agents\skills\mineru-pdf-to-markdown" -Recurse
-```
-
-**方式二：从 GitHub 安装**：发布本仓库后，用 `skill-installer` 或其他技能安装器按仓库地址安装。
-
-安装后，对 Agent 的示例请求：
-
-- “用 MinerU 把这个扫描 PDF 转成 Markdown，结果只保留 PDF 和 Markdown。”
-- “首次安装需要下载时先告诉我，再转换这篇含公式和表格的论文。”
-- “Hugging Face 连不上，改用 ModelScope 下载 pipeline 模型。”
-
-Agent 应先阅读 skill，再调用其中脚本；不应临时拼接另一套 MinerU 命令。
+也可以让支持 GitHub 仓库安装的 skill installer 从本仓库地址安装。安装后确认 `SKILL.md`、`scripts/` 与 `requirements.lock` 位于同一 skill 根目录。
 
 ## 输出
 
@@ -67,11 +54,21 @@ MinerU 生成的本地图片会以 Base64 写入 Markdown，因此不留下 imag
 - 中文、空格和长文件名；
 - 明确要求只保留 PDF 与 Markdown 的任务。
 
-当前只支持 Windows PowerShell 5.1/7，固定使用 MinerU 3.4.4（`pipeline` 后端，精确版本）。官方当前 Windows 支持 Python 3.10–3.12；安装器优先 3.11。CPU 可以运行，但可能很慢。
+当前只支持 Windows PowerShell 5.1/7，固定使用 MinerU 3.4.5（`pipeline` 后端，精确版本）。官方当前 Windows 支持 Python 3.10–3.12；安装器优先 3.11。CPU 可以运行，但可能很慢。
+
+## 交给 Agent 使用
+
+示例请求：
+
+- “用 MinerU 把这个扫描 PDF 转成 Markdown，结果只保留 PDF 和 Markdown。”
+- “首次安装需要下载时先告诉我，再转换这篇含公式和表格的论文。”
+- “Hugging Face 连不上，改用 ModelScope 下载 pipeline 模型。”
+
+Agent 应先阅读 skill，再调用其中脚本；不应临时拼接另一套 MinerU 命令。
 
 ## 完全手动使用
 
-以下示例假设仓库位于：
+以下示例假设项目位于：
 
 ```text
 C:\Users\你的用户名\Downloads\mineru-pdf-to-markdown
@@ -100,10 +97,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\你的用户�
 2. 需要 uv 时，按 Windows 架构下载固定版本 uv 资产，先用仓库中记录的 SHA-256 校验，校验失败则不解压、不执行；
 3. 复用 Python 3.10–3.12，优先 3.11；没有时用 uv 隔离安装 Python 3.11；
 4. 在 `%USERPROFILE%\mineru-env` 创建环境，不替换系统 Python、不修改 PATH；
-5. 只从带 hashes 的 `requirements.lock` 安装精确版本 `mineru[pipeline]==3.4.4`，启用 hash 强制校验；
+5. 只从带 hashes 的 `requirements.lock` 安装精确版本 `mineru[pipeline]==3.4.5`，启用 hash 强制校验；
 6. 仅在指定 `-DownloadModels` 时下载 pipeline 模型。
 
 需要重建环境时添加 `-ForceReinstall`。旧环境会移动成带时间戳的备份，不会直接删除。
+
+转换器也会核验 MinerU 精确版本。若检测到 3.4.4 等旧环境，它会在读取 PDF 前停止，并提示使用同一 `-EnvironmentPath` 配合 `-ForceReinstall` 重建；不会静默混用旧依赖。
 
 ### 2. 转换一个 PDF
 
@@ -116,6 +115,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\你的用户�
 ```
 
 终端默认每 15 秒显示一次仍在运行的提示。不要重复打开转换。脚本默认不设置总超时，因为长扫描件可能耗时很久；确需限制时添加例如 `-TimeoutMinutes 120`。
+
+需要更精确地控制解析时，可以追加：
+
+```powershell
+-Method ocr `
+-Language east_slavic `
+-StartPage 0 `
+-EndPage 9
+```
+
+- `-Method auto|txt|ocr`：默认 `auto`；仅在明确知道 PDF 类型时强制 `txt` 或 `ocr`。
+- `-Language`：可选 OCR 语言提示，具体值由脚本校验。
+- `-StartPage` / `-EndPage`：从 0 开始、首尾都包含；结束页不得早于开始页。
+- `-DisableFormula` / `-DisableTable`：显式关闭公式或表格解析。学术论文默认不要关闭。
 
 自定义安装位置时，安装和转换都传同一个路径：
 
@@ -156,7 +169,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\你的用户�
 & "$env:USERPROFILE\mineru-env\Scripts\python.exe" -m unittest discover -s tests -v
 ```
 
-中文 Windows 验证 Skill 结构时显式使用 UTF-8（在仓库根目录执行）：
+中文 Windows 验证 Skill 结构时显式使用 UTF-8：
 
 ```powershell
 $env:PYTHONUTF8 = "1"

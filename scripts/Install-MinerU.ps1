@@ -18,7 +18,7 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 
 $PinnedUvVersion = "0.11.32"
-$PinnedMinerUVersion = "3.4.4"
+$PinnedMinerUVersion = "3.4.5"
 $UvDownloadBaseUrl = "https://github.com/astral-sh/uv/releases/download/$PinnedUvVersion"
 $UvAssetHashes = @{
     "x86_64-pc-windows-msvc"  = "ACFDE570451CFDB8689FA159A138EE805BA4E241C466432750302C86254B0984"

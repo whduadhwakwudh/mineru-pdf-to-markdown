@@ -114,7 +114,7 @@ def write_embedded_markdown(
                 raw_target = match.group("target")
                 target = raw_target[1:-1] if raw_target.startswith("<") else raw_target
                 title = match.group("title") or ""
-                if target.lower().startswith(REMOTE_SCHEMES) or target.startswith("#"):
+                if target.lower().startswith(REMOTE_SCHEMES) or target.startswith(("#", "//")):
                     fragment = match.group(0)
                     emit(fragment)
                     destination.write(fragment)
@@ -307,6 +307,12 @@ def run_mineru(
     heartbeat_seconds: float = 15.0,
     timeout_seconds: float | None = None,
     model_source: str = "auto",
+    method: str = "auto",
+    language: str | None = None,
+    start_page: int | None = None,
+    end_page: int | None = None,
+    formula: bool = True,
+    table: bool = True,
 ) -> None:
     command = [
         str(mineru),
@@ -317,8 +323,18 @@ def run_mineru(
         "-b",
         "pipeline",
         "-m",
-        "auto",
+        method,
     ]
+    if language is not None:
+        command.extend(("-l", language))
+    if start_page is not None:
+        command.extend(("-s", str(start_page)))
+    if end_page is not None:
+        command.extend(("-e", str(end_page)))
+    if not formula:
+        command.extend(("-f", "false"))
+    if not table:
+        command.extend(("-t", "false"))
     process_environment = os.environ.copy()
     process_environment.setdefault("PYTHONUTF8", "1")
     process_environment.setdefault("PYTHONIOENCODING", "utf-8")
@@ -406,6 +422,12 @@ def convert(
     timeout_seconds: float | None = None,
     model_source: str = "auto",
     diagnostic_log_path: Path | None = None,
+    method: str = "auto",
+    language: str | None = None,
+    start_page: int | None = None,
+    end_page: int | None = None,
+    formula: bool = True,
+    table: bool = True,
 ) -> tuple[Path, Path, MarkdownStats]:
     pdf = pdf.expanduser().resolve()
     output_dir = output_dir.expanduser().resolve()
@@ -441,6 +463,12 @@ def convert(
                 heartbeat_seconds=heartbeat_seconds,
                 timeout_seconds=timeout_seconds,
                 model_source=model_source,
+                method=method,
+                language=language,
+                start_page=start_page,
+                end_page=end_page,
+                formula=formula,
+                table=table,
             )
         except ConversionError:
             if diagnostic_target is not None:
@@ -517,6 +545,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional local file to keep the full MinerU log in; the parent "
         "directory must exist and the file must not already exist",
     )
+    parser.add_argument(
+        "--method",
+        choices=("auto", "txt", "ocr"),
+        default="auto",
+        help="PDF parsing method (default: auto)",
+    )
+    parser.add_argument(
+        "--language",
+        choices=(
+            "ch",
+            "ch_server",
+            "korean",
+            "ta",
+            "te",
+            "ka",
+            "th",
+            "el",
+            "arabic",
+            "east_slavic",
+            "cyrillic",
+            "devanagari",
+        ),
+        help="Optional OCR language hint supported by the pipeline backend",
+    )
+    parser.add_argument("--start-page", type=int, help="First PDF page to parse, zero-based")
+    parser.add_argument("--end-page", type=int, help="Last PDF page to parse, zero-based")
+    parser.add_argument(
+        "--disable-formula",
+        action="store_true",
+        help="Disable formula parsing",
+    )
+    parser.add_argument(
+        "--disable-table",
+        action="store_true",
+        help="Disable table parsing",
+    )
     return parser
 
 
@@ -528,7 +592,19 @@ def main() -> int:
     if args.timeout_minutes < 0:
         print("ERROR: --timeout-minutes cannot be negative.", file=sys.stderr)
         return 2
-
+    if args.start_page is not None and args.start_page < 0:
+        print("ERROR: --start-page cannot be negative.", file=sys.stderr)
+        return 2
+    if args.end_page is not None and args.end_page < 0:
+        print("ERROR: --end-page cannot be negative.", file=sys.stderr)
+        return 2
+    if (
+        args.start_page is not None
+        and args.end_page is not None
+        and args.end_page < args.start_page
+    ):
+        print("ERROR: --end-page cannot be before --start-page.", file=sys.stderr)
+        return 2
     started = time.monotonic()
     try:
         source_pdf = Path(args.pdf)
@@ -551,6 +627,12 @@ def main() -> int:
             timeout_seconds=timeout_seconds,
             model_source=args.model_source,
             diagnostic_log_path=diagnostic_log_path,
+            method=args.method,
+            language=args.language,
+            start_page=args.start_page,
+            end_page=args.end_page,
+            formula=not args.disable_formula,
+            table=not args.disable_table,
         )
     except (ConversionError, OSError, UnicodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

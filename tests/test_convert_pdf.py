@@ -282,6 +282,25 @@ class ConverterTests(unittest.TestCase):
         self.assertNotIn("images/plot.png", text)
         self.assertIn("data:image/png;base64,", text)
 
+    def test_protocol_relative_remote_image_survives_streaming_embed(self) -> None:
+        root = self.temp / "artifacts"
+        result = root / "doc" / "auto"
+        result.mkdir(parents=True)
+        source = result / "doc.md"
+        source.write_text(
+            "![cdn](//cdn.example.com/figure.png)\n",
+            encoding="utf-8",
+        )
+        destination = self.temp / "out.md"
+
+        stats = MODULE.write_embedded_markdown(source, destination, root)
+
+        self.assertEqual(stats.embedded_images, 0)
+        self.assertEqual(
+            destination.read_text(encoding="utf-8"),
+            "![cdn](//cdn.example.com/figure.png)\n",
+        )
+
     def test_unsafe_image_path_is_rejected(self) -> None:
         root = self.temp / "artifacts"
         root.mkdir()
@@ -408,6 +427,60 @@ class ConverterTests(unittest.TestCase):
         self.assertIn("PDF does not exist", stderr.getvalue())
         self.assertNotIn("WinError", stderr.getvalue())
 
+    def test_main_rejects_an_end_page_before_the_start_page(self) -> None:
+        stderr = io.StringIO()
+        with (
+            patch.object(
+                MODULE.sys,
+                "argv",
+                [
+                    "convert_pdf.py",
+                    "--pdf",
+                    str(self.source),
+                    "--output",
+                    str(self.temp / "out"),
+                    "--mineru",
+                    str(self.fake),
+                    "--start-page",
+                    "5",
+                    "--end-page",
+                    "3",
+                ],
+            ),
+            patch("sys.stderr", stderr),
+            redirect_stdout(io.StringIO()),
+        ):
+            exit_code = MODULE.main()
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("cannot be before", stderr.getvalue())
+
+    def test_main_rejects_a_negative_page(self) -> None:
+        stderr = io.StringIO()
+        with (
+            patch.object(
+                MODULE.sys,
+                "argv",
+                [
+                    "convert_pdf.py",
+                    "--pdf",
+                    str(self.source),
+                    "--output",
+                    str(self.temp / "out"),
+                    "--mineru",
+                    str(self.fake),
+                    "--start-page",
+                    "-1",
+                ],
+            ),
+            patch("sys.stderr", stderr),
+            redirect_stdout(io.StringIO()),
+        ):
+            exit_code = MODULE.main()
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("cannot be negative", stderr.getvalue())
+
 
 class ProcessRunnerTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -479,6 +552,39 @@ class ProcessRunnerTests(unittest.TestCase):
 
         terminate.assert_called_once_with(fake_process)
 
+    def test_runner_forwards_document_parsing_options(self) -> None:
+        class FakeProcess:
+            pid = 2468
+
+            @staticmethod
+            def poll():
+                return 0
+
+        with (
+            patch.object(MODULE.subprocess, "Popen", return_value=FakeProcess()) as popen,
+            redirect_stdout(io.StringIO()),
+        ):
+            MODULE.run_mineru(
+                self.mineru,
+                self.pdf,
+                self.out,
+                self.log,
+                method="ocr",
+                language="east_slavic",
+                start_page=2,
+                end_page=4,
+                formula=False,
+                table=False,
+            )
+
+        command = popen.call_args.args[0]
+        self.assertEqual(command[command.index("-m") + 1], "ocr")
+        self.assertEqual(command[command.index("-l") + 1], "east_slavic")
+        self.assertEqual(command[command.index("-s") + 1], "2")
+        self.assertEqual(command[command.index("-e") + 1], "4")
+        self.assertEqual(command[command.index("-f") + 1], "false")
+        self.assertEqual(command[command.index("-t") + 1], "false")
+
 
 @unittest.skipUnless(shutil.which("powershell.exe"), "Windows PowerShell is required")
 class PowerShellContractTests(unittest.TestCase):
@@ -502,13 +608,33 @@ class PowerShellContractTests(unittest.TestCase):
         parameters = self.script_parameters(POWERSHELL_CONVERTER)
         self.assertTrue(
             {"EnvironmentPath", "HeartbeatSeconds", "TimeoutMinutes", "ModelSource",
-             "DiagnosticLogPath"}
+             "DiagnosticLogPath", "Method", "Language", "StartPage", "EndPage",
+             "DisableFormula", "DisableTable"}
             <= parameters
         )
 
     def test_installer_exposes_explicit_model_download_controls(self) -> None:
         parameters = self.script_parameters(POWERSHELL_INSTALLER)
         self.assertTrue({"DownloadModels", "ModelSource"} <= parameters)
+
+    def test_converter_enforces_the_exact_mineru_version(self) -> None:
+        text = POWERSHELL_CONVERTER.read_text(encoding="utf-8")
+        function = extract_powershell_function(text, "Test-ExactMinerUVersion")
+        script = (
+            "$PinnedMinerUVersion = '3.4.5'\n"
+            + function
+            + "\n@('3.4.4','3.4.5','3.5.0') | ForEach-Object { "
+            + "if (Test-ExactMinerUVersion $_) { 'yes' } else { 'no' } }"
+        )
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        self.assertEqual(result.stdout.splitlines(), ["no", "yes", "no"])
+        self.assertIn("Assert-CompatibleMinerU", text)
 
     def test_installer_avoids_known_unsafe_and_incompatible_patterns(self) -> None:
         text = POWERSHELL_INSTALLER.read_text(encoding="utf-8")
@@ -518,7 +644,7 @@ class PowerShellContractTests(unittest.TestCase):
             text,
             r"Remove-Item\s+-LiteralPath\s+\$EnvironmentPath[^\r\n]*-Recurse",
         )
-        self.assertNotIn("mineru[pipeline]>=3.4.4,<3.5", text)
+        self.assertNotIn("mineru[pipeline]>=3.4.5,<3.5", text)
 
     def test_installer_uses_hashed_uv_assets_and_locked_install(self) -> None:
         text = POWERSHELL_INSTALLER.read_text(encoding="utf-8")
@@ -538,15 +664,15 @@ class PowerShellContractTests(unittest.TestCase):
         self.assertTrue(lock.is_file())
         text = lock.read_text(encoding="utf-8")
         self.assertIn("--hash=sha256:", text)
-        self.assertRegex(text, r"(?m)^mineru==3\.4\.4")
+        self.assertRegex(text, r"(?m)^mineru==3\.4\.5")
 
     def test_mineru_exact_version_boundaries(self) -> None:
         text = POWERSHELL_INSTALLER.read_text(encoding="utf-8")
         function = extract_powershell_function(text, "Test-ExactMinerUVersion")
         script = (
-            "$PinnedMinerUVersion = '3.4.4'\n"
+            "$PinnedMinerUVersion = '3.4.5'\n"
             + function
-            + "\n@('3.4.3','3.4.4','3.5.0') | ForEach-Object { "
+            + "\n@('3.4.4','3.4.5','3.5.0') | ForEach-Object { "
             + "if (Test-ExactMinerUVersion $_) { 'yes' } else { 'no' } }"
         )
         result = subprocess.run(
@@ -587,6 +713,19 @@ class PowerShellContractTests(unittest.TestCase):
         environment_path = Path.home() / "mineru-env"
         if not (environment_path / "Scripts" / "mineru.exe").is_file():
             self.skipTest("A default MinerU environment is required for the encoding check")
+        version = subprocess.run(
+            [
+                str(environment_path / "Scripts" / "python.exe"),
+                "-c",
+                "import importlib.metadata as m; print(m.version('mineru'))",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        ).stdout.strip()
+        if version != "3.4.5":
+            self.skipTest("The encoding check requires the exact pinned MinerU version")
 
         missing_pdf = Path(tempfile.gettempdir()) / "不存在的中文文件.pdf"
         output = Path(tempfile.gettempdir()) / "不会创建的输出目录"
@@ -641,6 +780,16 @@ class SkillDocumentationTests(unittest.TestCase):
         text = README.read_text(encoding="utf-8")
         self.assertIn("requirements.lock", text)
         self.assertIn("-DiagnosticLogPath", text)
+
+    def test_skill_and_readme_document_parsing_controls_and_current_version(self) -> None:
+        for path in (SKILL_MD, README):
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=path):
+                self.assertIn("MinerU 3.4.5", text)
+                self.assertIn("-Method", text)
+                self.assertIn("-Language", text)
+                self.assertIn("-StartPage", text)
+                self.assertIn("-DisableFormula", text)
 
     def test_openai_prompt_names_the_skill(self) -> None:
         text = OPENAI_YAML.read_text(encoding="utf-8")
