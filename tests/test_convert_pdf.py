@@ -207,6 +207,46 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(len(final_copies), 1)
         self.assertEqual(Path(final_copies[0]).name, "doc.pdf")
 
+    def test_write_embedded_markdown_repairs_ligature_artifacts(self) -> None:
+        """PUA ligature glyphs must be repaired while writing, and counted."""
+        root = self.temp / "artifacts"
+        result = root / "doc"
+        result.mkdir(parents=True)
+        source = result / "doc.md"
+        source.write_text(
+            "recent scienti<sup>\ue103</sup>c work and in\ue104uencing \ue104ows\n",
+            encoding="utf-8",
+        )
+        destination = self.temp / "out.md"
+
+        stats = MODULE.write_embedded_markdown(source, destination, root)
+
+        text = destination.read_text(encoding="utf-8")
+        self.assertIn("scientific", text)
+        self.assertIn("influencing", text)
+        self.assertIn("flows", text)
+        self.assertNotIn("\ue103", text)
+        self.assertNotIn("\ue104", text)
+        self.assertGreater(stats.text_repairs, 0)
+
+    def test_write_embedded_markdown_leaves_code_fences_untouched(self) -> None:
+        root = self.temp / "artifacts"
+        result = root / "doc"
+        result.mkdir(parents=True)
+        source = result / "doc.md"
+        source.write_text(
+            "```\nraw \ue103 code\n```\n\ntext A\ue09der here\n",
+            encoding="utf-8",
+        )
+        destination = self.temp / "out.md"
+
+        MODULE.write_embedded_markdown(source, destination, root)
+
+        text = destination.read_text(encoding="utf-8")
+        # Fenced code keeps the raw glyph; prose is repaired.
+        self.assertIn("raw \ue103 code", text)
+        self.assertIn("After", text)
+
     def test_write_embedded_markdown_stats_match_written_file(self) -> None:
         root = self.temp / "artifacts"
         result = root / "doc" / "auto"
@@ -617,24 +657,16 @@ class PowerShellContractTests(unittest.TestCase):
         parameters = self.script_parameters(POWERSHELL_INSTALLER)
         self.assertTrue({"DownloadModels", "ModelSource"} <= parameters)
 
-    def test_converter_enforces_the_exact_mineru_version(self) -> None:
+    def test_converter_accepts_any_installed_mineru_version(self) -> None:
+        """Version pinning was removed at user request: the wrapper reports the
+        installed version instead of rejecting non-3.4.5 environments."""
         text = POWERSHELL_CONVERTER.read_text(encoding="utf-8")
-        function = extract_powershell_function(text, "Test-ExactMinerUVersion")
-        script = (
-            "$PinnedMinerUVersion = '3.4.5'\n"
-            + function
-            + "\n@('3.4.4','3.4.5','3.5.0') | ForEach-Object { "
-            + "if (Test-ExactMinerUVersion $_) { 'yes' } else { 'no' } }"
-        )
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-Command", script],
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-        self.assertEqual(result.stdout.splitlines(), ["no", "yes", "no"])
-        self.assertIn("Assert-CompatibleMinerU", text)
+        self.assertNotIn("Test-ExactMinerUVersion", text)
+        self.assertNotIn("PinnedMinerUVersion", text)
+        self.assertIn("Resolve-CompatibleMinerU", text)
+        # The environment probe must still fail loudly when MinerU is absent.
+        function = extract_powershell_function(text, "Resolve-CompatibleMinerU")
+        self.assertIn("Could not verify MinerU", function)
 
     def test_installer_avoids_known_unsafe_and_incompatible_patterns(self) -> None:
         text = POWERSHELL_INSTALLER.read_text(encoding="utf-8")
@@ -724,8 +756,10 @@ class PowerShellContractTests(unittest.TestCase):
             text=True,
             encoding="utf-8",
         ).stdout.strip()
-        if version != "3.4.5":
-            self.skipTest("The encoding check requires the exact pinned MinerU version")
+        # The converter accepts any installed MinerU version now, so this
+        # end-to-end encoding check no longer needs the pinned version.
+        if not version:
+            self.skipTest("MinerU is not installed in the test environment")
 
         missing_pdf = Path(tempfile.gettempdir()) / "不存在的中文文件.pdf"
         output = Path(tempfile.gettempdir()) / "不会创建的输出目录"
@@ -781,7 +815,7 @@ class SkillDocumentationTests(unittest.TestCase):
         self.assertIn("requirements.lock", text)
         self.assertIn("-DiagnosticLogPath", text)
 
-    def test_skill_and_readme_document_parsing_controls_and_current_version(self) -> None:
+    def test_skill_and_readme_document_parsing_controls_and_installed_version(self) -> None:
         for path in (SKILL_MD, README):
             text = path.read_text(encoding="utf-8")
             with self.subTest(path=path):
@@ -790,6 +824,11 @@ class SkillDocumentationTests(unittest.TestCase):
                 self.assertIn("-Language", text)
                 self.assertIn("-StartPage", text)
                 self.assertIn("-DisableFormula", text)
+
+    def test_readme_documents_text_repair(self) -> None:
+        text = README.read_text(encoding="utf-8")
+        self.assertIn("normalize_text.py", text)
+        self.assertIn("Text repairs", text)
 
     def test_openai_prompt_names_the_skill(self) -> None:
         text = OPENAI_YAML.read_text(encoding="utf-8")

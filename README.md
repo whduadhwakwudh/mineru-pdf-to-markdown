@@ -29,6 +29,21 @@
 
 > MinerU 可以省下大量复制和排版时间，但它也可能认错文字、表格或公式。论文引用、实验数字和重要结论，请回到结果文件夹里的 PDF 再核对一次。
 
+## 自动修正常见的字体乱码
+
+很多论文 PDF 的字体把 `fi`、`fl`、`ff`、`ffi`、`ft` 这些连字做成单个字形。转换器如果无法把它还原成普通字母，就会输出看不见的乱码字符，例如 `scienti[乱码]c` 应该是 `scientific`、`A[乱码]er` 应该是 `After`。
+
+这个 skill 会在写 Markdown 时自动修好这一类问题，包括：
+
+- 私用区乱码字符（U+E000–U+F8FF）还原成对应字母组合；
+- Unicode 连字（U+FB00–U+FB06）展开成普通字母；
+- 连字丢字母的常见词（`suficient` → `sufficient`、`diferent` → `different`）；
+- 不间断空格、被误用成度数符号的白圆点。
+
+转换结束后会打印修好的处数，例如 `Text repairs (ligature/symbol artifacts): 335`。代码块里的内容不会被改动，图片数据也不会被触碰。无法确定的乱码字符会保留并统计，不会瞎猜。
+
+> 修复依据上下文和一份常见词表判断，能覆盖绝大多数情况，但不能保证 100% 正确。关键数字和术语仍要回原文核对。
+
 ## 适合处理哪些 PDF
 
 这个 skill 适合：
@@ -161,7 +176,7 @@ $env:PYTHONUTF8 = "1"
 
 ### 提示 MinerU 版本不对
 
-这个 skill 当前配合 MinerU 3.4.5 使用。运行前面带 `-ForceReinstall` 的命令即可重装。旧文件夹仍会保留。
+安装的 MinerU 版本由 `requirements.lock` 决定（当前 3.4.5），但转换器本身接受任何已安装版本，并在输出里报告实际使用的版本。只有环境损坏时才需要运行带 `-ForceReinstall` 的命令重装，旧文件夹仍会保留。
 
 ### Windows 弹出网络提示
 
@@ -199,14 +214,17 @@ mineru-pdf-to-markdown\
 ├── scripts\
 │   ├── install_mineru.ps1
 │   ├── convert_pdf.py
+│   ├── normalize_text.py
 │   └── requirements.lock
 └── tests\
-    └── test_convert_pdf.py
+    ├── test_convert_pdf.py
+    └── test_normalize_text.py
 ```
 
-- 当前配合版本：MinerU 3.4.5。
+- 当前安装版本：MinerU 3.4.5（转换器接受其他已安装版本并报告实际版本）。
 - 支持 Python 3.10、3.11 和 3.12。
 - `requirements.lock` 记录安装时使用的具体软件版本。
+- `scripts/normalize_text.py` 负责连字/符号乱码修复，可单独 import 使用。
 - 转换脚本只接受本机文件，不会替用户下载网络上的 PDF。
 
 运行测试：
@@ -216,7 +234,7 @@ $env:PYTHONUTF8 = "1"
 python -m unittest discover -s ".\tests" -v
 ```
 
-如果本机 MinerU 版本与这个 skill 不一致，版本检查会跳过，其余测试仍会继续。
+测试会跳过依赖本机 MinerU 环境的用例，其余全部离线运行。
 
 ## License
 

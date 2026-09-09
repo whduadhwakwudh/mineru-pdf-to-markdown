@@ -46,16 +46,8 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pythonScript = Join-Path $scriptDirectory "convert_pdf.py"
-$PinnedMinerUVersion = "3.4.5"
 
-function Test-ExactMinerUVersion([string]$VersionText) {
-    if ([string]::IsNullOrWhiteSpace($VersionText)) {
-        return $false
-    }
-    return $VersionText.Trim() -eq $PinnedMinerUVersion
-}
-
-function Assert-CompatibleMinerU([string]$PythonExe, [string]$MinerUExe) {
+function Resolve-CompatibleMinerU([string]$PythonExe, [string]$MinerUExe) {
     try {
         $output = & $PythonExe -c "import importlib.metadata as m; print(m.version('mineru'))" 2>$null
         if ($LASTEXITCODE -ne 0) {
@@ -66,12 +58,8 @@ function Assert-CompatibleMinerU([string]$PythonExe, [string]$MinerUExe) {
     catch {
         throw "Could not verify MinerU in the selected environment: $PythonExe"
     }
-    if (-not (Test-ExactMinerUVersion $installedVersion)) {
-        throw (
-            "The selected environment contains MinerU $installedVersion, but this skill " +
-            "requires exactly $PinnedMinerUVersion. Run Install-MinerU.ps1 with the same " +
-            "-EnvironmentPath and -ForceReinstall."
-        )
+    if (-not [string]::IsNullOrWhiteSpace($installedVersion)) {
+        Write-Verbose "Using MinerU $installedVersion from $PythonExe"
     }
     return @{
         Python = $PythonExe
@@ -98,7 +86,7 @@ function Resolve-MinerUEnvironment {
         if (-not (Test-Path -LiteralPath $pythonBesideMinerU -PathType Leaf)) {
             throw "python.exe was not found beside the selected MinerU executable: $pythonBesideMinerU"
         }
-        return (Assert-CompatibleMinerU $pythonBesideMinerU $resolvedMinerU)
+        return (Resolve-CompatibleMinerU $pythonBesideMinerU $resolvedMinerU)
     }
 
     foreach ($candidate in $environmentCandidates) {
@@ -108,7 +96,7 @@ function Resolve-MinerUEnvironment {
             (Test-Path -LiteralPath $candidatePython -PathType Leaf) -and
             (Test-Path -LiteralPath $candidateMinerU -PathType Leaf)
         ) {
-            return (Assert-CompatibleMinerU $candidatePython $candidateMinerU)
+            return (Resolve-CompatibleMinerU $candidatePython $candidateMinerU)
         }
     }
 

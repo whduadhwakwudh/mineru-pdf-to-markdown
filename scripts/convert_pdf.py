@@ -24,12 +24,27 @@ FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 REMOTE_SCHEMES = ("http://", "https://", "data:", "mailto:")
 IMAGE_CHUNK_BYTES = 3 * 1024 * 1024  # multiple of 3 so Base64 output never pads mid-stream
 
+# Repair PDF font artifacts (ligature glyphs emitted as PUA, dropped letters).
+# Kept optional: a missing module must not break conversion.
+try:
+    from normalize_text import repair_text as _repair_text
+except ImportError:  # pragma: no cover - defensive
+    try:
+        # When loaded via importlib without the scripts directory on sys.path.
+        _here = str(Path(__file__).resolve().parent)
+        if _here not in sys.path:
+            sys.path.insert(0, _here)
+        from normalize_text import repair_text as _repair_text
+    except ImportError:
+        _repair_text = None
+
 
 @dataclass(frozen=True)
 class MarkdownStats:
     embedded_images: int
     output_bytes: int
     non_whitespace_characters: int
+    text_repairs: int = 0
 
 
 class ConversionError(RuntimeError):
@@ -78,12 +93,22 @@ def write_embedded_markdown(
     embedded_images = 0
     output_bytes = 0
     non_whitespace_characters = 0
+    text_repairs = 0
     fence_marker: str | None = None
 
     def emit(fragment: str) -> None:
         nonlocal output_bytes, non_whitespace_characters
         output_bytes += len(fragment.encode("utf-8"))
         non_whitespace_characters += sum(not character.isspace() for character in fragment)
+
+    def normalize(fragment: str) -> str:
+        """Repair font artifacts outside code fences, accumulating the count."""
+        nonlocal text_repairs
+        if _repair_text is None or not fragment:
+            return fragment
+        fixed, report = _repair_text(fragment)
+        text_repairs += report.total_fixes
+        return fixed
 
     with (
         source_markdown.open("r", encoding="utf-8", errors="strict") as source,
@@ -106,6 +131,7 @@ def write_embedded_markdown(
                 destination.write(line)
                 continue
 
+            line = normalize(line)
             position = 0
             for match in IMAGE_RE.finditer(line):
                 emit(line[position : match.start()])
@@ -151,6 +177,7 @@ def write_embedded_markdown(
         embedded_images=embedded_images,
         output_bytes=output_bytes,
         non_whitespace_characters=non_whitespace_characters,
+        text_repairs=text_repairs,
     )
 
 
@@ -646,6 +673,8 @@ def main() -> int:
     print(f"Markdown size: {stats.output_bytes / (1024 * 1024):.2f} MB")
     print(f"Markdown non-whitespace characters: {stats.non_whitespace_characters}")
     print(f"Embedded images: {stats.embedded_images}")
+    if stats.text_repairs:
+        print(f"Text repairs (ligature/symbol artifacts): {stats.text_repairs}")
     print(f"PDF SHA-256: {sha256(final_pdf)}")
     print("Output contains exactly one PDF and one Markdown file.")
     print("Quality note: machine extraction must be checked against the source PDF.")
